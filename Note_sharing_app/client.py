@@ -3,6 +3,11 @@ from tkinter import filedialog, messagebox
 import re
 import pyperclip  # Dùng để copy vào clipboard
 import os
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+import base64
+from pymongo import MongoClient
+
 # Hàm căn giữa cửa sổ
 def center_window(window, width, height):
     screen_width = window.winfo_screenwidth()
@@ -152,6 +157,20 @@ def show_notes_list_window(parent_window):
     center_window(list_window, 600, 400)
     list_window.configure(bg="#f8f9fa")
 
+    def decrypt_data(encrypted_data, key):
+        # Tách IV và ciphertext từ dữ liệu mã hóa
+        iv = encrypted_data[:16]  # Lấy 16 byte đầu tiên làm IV
+        ciphertext = encrypted_data[16:]  # Phần còn lại là ciphertext
+        # Khởi tạo đối tượng cipher AES với khóa và IV
+        cipher = AES.new(key, AES.MODE_CBC, iv)
+        # Giải mã dữ liệu
+        plaintext = cipher.decrypt(ciphertext)
+        # Loại bỏ padding
+        padding_length = plaintext[-1]  # Byte cuối cùng cho biết độ dài padding
+        plaintext = plaintext[:-padding_length]  # Loại bỏ padding
+        return plaintext
+        # Thêm 1 hàm lưu vào 1 file trên máy để mở khi kết nối đến server
+    
     def go_back():
         list_window.destroy()
         parent_window.deiconify()
@@ -262,6 +281,20 @@ def show_notes_window():
     def show_url_input():
           show_url_input_window(notes_window)
 
+    def encrypt_file_to_variable(input_file, key):
+        iv = get_random_bytes(16)  # Tạo IV ngẫu nhiên
+        cipher = AES.new(key, AES.MODE_CBC, iv)  # Tạo cipher AES
+        # Đọc nội dung file
+        with open(input_file, "rb") as f:
+            plaintext = f.read()
+        # Padding dữ liệu để chia hết 16 byte
+        padding_length = 16 - len(plaintext) % 16
+        plaintext += bytes([padding_length]) * padding_length
+        # Mã hóa
+        ciphertext = cipher.encrypt(plaintext)
+        # Lưu nội dung mã hóa vào biến (bao gồm cả IV)
+        encrypted_data = iv + ciphertext  # Kết hợp IV và ciphertext
+        return encrypted_data
 
     def choose_file():
         file_path = filedialog.askopenfilename(
@@ -271,8 +304,13 @@ def show_notes_window():
         if file_path:
             selected_file[0] = file_path
             file_label.config(text=f"Đã chọn: {file_path.split('/')[-1]}")
+        # Tạo khóa AES ngẫu nhiên (256-bit)
+        key = get_random_bytes(32)
+        # Mã hóa file và lưu nội dung mã hóa vào biến
+        encrypted_data = encrypt_file_to_variable(file_path, key)
+        # --> Viết gửi data này cho server xử lí để lưu vào database [UserID] [key] [encrypted_data]
 
-    def add_note():
+    def add_note(): # Phần này là phần gửi data cho server 
         name = name_entry.get()
         if not (2 <= len(name) <= 20):
             messagebox.showerror("Lỗi", "Tên phải từ 2 đến 20 ký tự!")
