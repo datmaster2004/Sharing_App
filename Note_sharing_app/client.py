@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import re
 import pyperclip  # Dùng để copy vào clipboard
-
+import os
 # Hàm căn giữa cửa sổ
 def center_window(window, width, height):
     screen_width = window.winfo_screenwidth()
@@ -165,6 +165,12 @@ def show_notes_list_window(parent_window):
         list_window.destroy()
         show_notes_list_window(parent_window)
 
+    def open_file(file_path):
+        if os.path.exists(file_path):
+            os.startfile(file_path)  # Mở file bằng ứng dụng mặc định
+        else:
+            messagebox.showerror("Lỗi", "File không tồn tại!")
+
     # Tiêu đề
     title_label = tk.Label(
         list_window,
@@ -198,6 +204,19 @@ def show_notes_list_window(parent_window):
                 command=lambda name=note["name"]: create_url(name)
             )
             url_button.pack(side="left", padx=5)
+
+            open_button = tk.Button(
+                note_frame,
+                text="Mở file",
+                font=("Helvetica", 10),
+                bg="#ffc107",
+                fg="white",
+                activebackground="#e0a800",
+                activeforeground="white",
+                relief="flat",
+                command=lambda path=note["file"]: open_file(path)
+            )
+            open_button.pack(side="left", padx=5)
 
             delete_button = tk.Button(
                 note_frame,
@@ -240,6 +259,10 @@ def show_notes_window():
         notes_window.destroy()
         root.deiconify()
 
+    def show_url_input():
+          show_url_input_window(notes_window)
+
+
     def choose_file():
         file_path = filedialog.askopenfilename(
             title="Chọn file",
@@ -275,6 +298,20 @@ def show_notes_window():
         command=go_back
     )
     back_button.place(x=10, y=10)
+    
+    # Nút nhập URL
+    url_input_button = tk.Button(
+        notes_window,
+        text="Nhập URL",
+        font=("Helvetica", 10),
+        bg="#17a2b8",
+        fg="white",
+        activebackground="#138496",
+        activeforeground="white",
+        relief="flat",
+        command= show_url_input
+    )
+    url_input_button.place(x=400, y=10)
 
     title_label = tk.Label(
         notes_window,
@@ -334,6 +371,74 @@ def show_notes_window():
         command=lambda: show_notes_list_window(notes_window)
     )
     list_button.pack(pady=10)
+    
+# Hàm hiển thị cửa sổ nhập URL
+def show_url_input_window(parent_window):
+    
+    url_input_window = tk.Toplevel(parent_window)
+    url_input_window.title("Nhập URL")
+    center_window(url_input_window, 400, 250)
+    url_input_window.configure(bg="#f8f9fa")
+
+    def go_back():
+        url_input_window.destroy()
+        parent_window.deiconify()
+
+    def handle_url_input():
+        input_url = url_entry.get()
+        
+        # Duyệt qua từng ghi chú để kiểm tra URL
+        for note in notes:
+          generated_url = f"https://example.com/notes/{note['name'].replace(' ', '_')}"
+          if input_url == generated_url:
+            if os.path.exists(note['file']):
+                os.startfile(note['file'])  # Mở file bằng ứng dụng mặc định
+            else:
+                messagebox.showerror("Lỗi", "File không tồn tại!")
+            url_input_window.destroy()
+            parent_window.deiconify()
+            return
+        messagebox.showerror("Lỗi", "URL không hợp lệ!")
+    
+    # Nút quay lại
+    back_button = tk.Button(
+        url_input_window,
+        text="← Quay lại",
+        font=("Helvetica", 10),
+        bg="#007bff",
+        fg="white",
+        activebackground="#0056b3",
+        activeforeground="white",
+        relief="flat",
+        command=go_back
+    )
+    back_button.place(x=10, y=10)
+
+    title_label = tk.Label(
+        url_input_window,
+        text="Nhập URL",
+        font=("Helvetica", 16, "bold"),
+        bg="#f8f9fa",
+        fg="#343a40"
+    )
+    title_label.pack(pady=20)
+
+    tk.Label(url_input_window, text="URL:", font=("Helvetica", 12), bg="#f8f9fa").pack(pady=5)
+    url_entry = tk.Entry(url_input_window, font=("Helvetica", 12), width=40)
+    url_entry.pack(pady=5)
+
+    submit_button = tk.Button(
+        url_input_window,
+        text="Xác nhận",
+        font=("Helvetica", 12),
+        bg="#28a745",
+        fg="white",
+        activebackground="#218838",
+        activeforeground="white",
+        relief="flat",
+        command=handle_url_input
+    )
+    submit_button.pack(pady=20)
 
 # Hàm hiển thị cửa sổ Đăng nhập
 def show_login_window():
@@ -496,6 +601,7 @@ title_label.pack(pady=50)
 
 button_frame = tk.Frame(root, bg="#f8f9fa")
 button_frame.pack(pady=20)
+
 
 login_button = tk.Button(
     button_frame,
