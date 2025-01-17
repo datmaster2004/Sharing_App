@@ -3,10 +3,13 @@ from tkinter import filedialog, messagebox
 import re
 import pyperclip  # Dùng để copy vào clipboard
 import os
+import base64
+import requests
 from Crypto.Cipher import AES 
 from Crypto.Random import get_random_bytes 
-import base64
 from pymongo import MongoClient
+
+global_username = ""
 
 # Hàm căn giữa cửa sổ
 def center_window(window, width, height):
@@ -30,10 +33,6 @@ def is_valid_password(password):
 
 # Danh sách ghi chú
 notes = []
-
-import tkinter as tk
-from tkinter import messagebox
-import pyperclip  # Dùng để copy vào clipboard
 
 # Hàm căn giữa cửa sổ
 def center_window(window, width, height):
@@ -157,20 +156,6 @@ def show_notes_list_window(parent_window):
     center_window(list_window, 600, 400)
     list_window.configure(bg="#f8f9fa")
 
-    def decrypt_data(encrypted_data, key):
-        # Tách IV và ciphertext từ dữ liệu mã hóa
-        iv = encrypted_data[:16]  # Lấy 16 byte đầu tiên làm IV
-        ciphertext = encrypted_data[16:]  # Phần còn lại là ciphertext
-        # Khởi tạo đối tượng cipher AES với khóa và IV
-        cipher = AES.new(key, AES.MODE_CBC, iv)
-        # Giải mã dữ liệu
-        plaintext = cipher.decrypt(ciphertext)
-        # Loại bỏ padding
-        padding_length = plaintext[-1]  # Byte cuối cùng cho biết độ dài padding
-        plaintext = plaintext[:-padding_length]  # Loại bỏ padding
-        return plaintext
-        # Thêm 1 hàm lưu vào 1 file trên máy để mở khi kết nối đến server
-    
     def go_back():
         list_window.destroy()
         parent_window.deiconify()
@@ -281,6 +266,7 @@ def show_notes_window():
     def show_url_input():
           show_url_input_window(notes_window)
 
+    # Hàm mã hóa dữ liệu file
     def encrypt_file_to_variable(input_file, key):
         iv = get_random_bytes(16)  # Tạo IV ngẫu nhiên
         cipher = AES.new(key, AES.MODE_CBC, iv)  # Tạo cipher AES
@@ -304,11 +290,6 @@ def show_notes_window():
         if file_path:
             selected_file[0] = file_path
             file_label.config(text=f"Đã chọn: {file_path.split('/')[-1]}")
-        # Tạo khóa AES ngẫu nhiên (256-bit)
-        key = get_random_bytes(32)
-        # Mã hóa file và lưu nội dung mã hóa vào biến
-        encrypted_data = encrypt_file_to_variable(file_path, key)
-        # --> Viết gửi data này cho server xử lí để lưu vào database [UserID] [key] [encrypted_data]
 
     def add_note(): # Phần này là phần gửi data cho server 
         name = name_entry.get()
@@ -317,8 +298,33 @@ def show_notes_window():
         elif not selected_file[0]:
             messagebox.showerror("Lỗi", "Vui lòng chọn file!")
         else:
-            notes.append({"name": name, "file": selected_file[0]})
-            messagebox.showinfo("Thành công", f"Ghi chú '{name}' đã được tạo!")
+            # Tạo khóa AES ngẫu nhiên (256-bit)
+            key = get_random_bytes(32)
+            # Mã hóa file và lưu nội dung mã hóa vào biến
+            encrypted_data = encrypt_file_to_variable(selected_file[0], key)
+            # --> Viết gửi data này cho server xử lí để lưu vào database [usernam] [name] [file_extension] [key] [encrypted_data]
+            file_name = os.path.basename(selected_file[0])  # Lấy tên file, ví dụ: "file.txt"
+            file_extension = os.path.splitext(file_name)[1]  # Lấy phần mở rộng, ví dụ: ".txt"
+            try:
+                response = requests.post(
+                    'http://127.0.0.1:5000/notes',
+                    json={
+                        "username": global_username, 
+                        "name": name,
+                        "file_extension": file_extension,             
+                        "key": base64.b64encode(key).decode('utf-8'),  # Chuyển key từ bytes thành base64 để gửi qua JSON
+                        "encrypted_data": base64.b64encode(encrypted_data).decode('utf-8')  # Chuyển dữ liệu mã hóa thành base64
+                    }
+                )
+                if response.status_code == 200:
+                    messagebox.showinfo("Thành công", "Dữ liệu đã được gửi đến server!")
+                else:
+                    messagebox.showerror("Lỗi", f"Không thể gửi dữ liệu: {response.text}")
+            except Exception as e:
+                messagebox.showerror("Lỗi", f"Đã xảy ra lỗi: {str(e)}")
+            # notes.append({"name": name, "file": selected_file[0]})
+            # --> đoạn này không cần nữa do lưu file từ server về
+            # Cập nhật lại các trường
             name_entry.delete(0, tk.END)
             selected_file[0] = None
             file_label.config(text="Chưa chọn file")
@@ -478,6 +484,57 @@ def show_url_input_window(parent_window):
     )
     submit_button.pack(pady=20)
 
+# Hàm giải mã dữ liệu
+def decrypt_data(encrypted_data, key):
+    # Tách IV và ciphertext từ dữ liệu mã hóa
+    iv = encrypted_data[:16]  # Lấy 16 byte đầu tiên làm IV
+    ciphertext = encrypted_data[16:]
+    # Khởi tạo đối tượng cipher AES với khóa và IV
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    # Giải mã dữ liệu
+    plaintext = cipher.decrypt(ciphertext)
+    # Loại bỏ padding
+    padding_length = plaintext[-1]  # Byte cuối cùng cho biết độ dài padding
+    plaintext = plaintext[:-padding_length]  # Loại bỏ padding
+    return plaintext
+    
+# Hàm tải file về máy
+def download_file(datas):
+    # Tạo thư mục "note_list" nếu chưa tồn tại
+    directory = os.path.join(os.getcwd(), "note_list")  # Thư mục lưu file
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    for data in datas:
+        username = data['username']
+        name = data['name']
+        file_extension = data['file_extension']
+        key = base64.b64decode(data['key'])
+        encrypted_data = base64.b64decode(data['encrypted_data'])
+        # Giải mã dữ liệu
+        decrypted_data = decrypt_data(encrypted_data, key)
+        # Lưu dữ liệu vào file
+        file_name = f"{username}_{name}.{file_extension}"
+        file_path = os.path.join(directory, file_name)
+        with open(file_path, "wb") as f:
+            f.write(decrypted_data)
+        # Thêm dữ liệu vào mảng notes
+        notes.append({"name": name, "file": file_path})
+    messagebox.showinfo("Tải xuống", "File đã được tải xuống thành công!")
+
+# Hàm lấy file từ server
+def get_notes():
+    username = global_username
+    try:
+        response = requests.get('http://127.0.0.1:5000/notes', params={"username": username})
+        if response.status_code == 200:
+            datas = response.json()["notes"]
+            messagebox.showinfo("Thành công", "Dữ liệu đã được tải về!")
+        else:
+            messagebox.showerror("Lỗi", f"Không thể tải dữ liệu: {response.text}")
+        download_file(datas)
+    except Exception as e:
+        messagebox.showerror("Lỗi", f"Không tải được dữ liệu: {str(e)}")
+
 # Hàm hiển thị cửa sổ Đăng nhập
 def show_login_window():
     root.withdraw()
@@ -491,6 +548,7 @@ def show_login_window():
         root.deiconify()
 
     def handle_login():
+        global global_username  
         username = username_entry.get()
         password = password_entry.get()
 
@@ -499,6 +557,8 @@ def show_login_window():
         elif len(password) < 8:
             messagebox.showerror("Lỗi", "Mật khẩu phải có ít nhất 8 ký tự!")
         else:
+            global_username = username
+            get_notes()
             login_window.destroy()
             show_notes_window()
 
@@ -559,6 +619,7 @@ def show_register_window():
         root.deiconify()
 
     def handle_register():
+        global global_username  
         username = username_entry.get()
         password = password_entry.get()
         confirm_password = confirm_password_entry.get()
@@ -571,6 +632,8 @@ def show_register_window():
             messagebox.showerror("Lỗi", "Mật khẩu không khớp!")
         else:
             messagebox.showinfo("Thành công", "Đăng ký thành công!")
+            global_username = username
+            get_notes()
             register_window.destroy()
             root.deiconify()
 
