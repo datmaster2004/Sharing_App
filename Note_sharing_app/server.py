@@ -54,11 +54,12 @@ def login():
         return jsonify({"message": "Login successful", "token": token}), 200
     else:
         return jsonify({"message": "Invalid password!"}), 400
-    
+
+# Thêm ghi chú
 @app.route('/notes', methods=['POST'])
 def add_notes():
     data = request.get_json()
-    # Thêm notes vào database
+    # Thêm ghi chú vào database
     notes_collection.insert_one({
         "username": data['username'],
         "name": data['name'],
@@ -68,12 +69,24 @@ def add_notes():
     })
     return jsonify({"message": "Notes added successfully!"}), 200
 
+# Lấy ghi chú
 @app.route('/notes', methods=['GET'])
 def get_notes():
     username = request.args.get('username')
     # Lấy tất cả ghi chú của người dùng
     notes = list(notes_collection.find({"username": username}, {"_id": 0}))
     return jsonify({"notes": notes}), 200
+
+# Xóa ghi chú
+@app.route('/notes', methods=['DELETE'])
+def delete_notes():
+    data = request.get_json()
+    # Xóa ghi chú khỏi database
+    notes_collection.delete_one({
+        "username": data['username'],
+        "name": data['name']
+    })
+    return jsonify({"message": "Notes deleted successfully!"}), 200
 
 # Chạy server Flask
 if __name__ == '__main__':

@@ -9,7 +9,15 @@ from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes 
 from pymongo import MongoClient
 
-global_username = ""
+# Hàm xử lý sự kiện đóng cửa sổ
+def on_closing():
+    directory = os.path.join(os.getcwd(), "note_list")
+    if os.path.exists(directory):
+        for filename in os.listdir(directory):
+            file_path = os.path.join(directory, filename)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+    root.destroy()
 
 # Hàm căn giữa cửa sổ
 def center_window(window, width, height):
@@ -33,6 +41,8 @@ def is_valid_password(password):
 
 # Danh sách ghi chú
 notes = []
+# Biến toàn cục lưu tên đăng nhập
+global_username = ""
 
 # Hàm căn giữa cửa sổ
 def center_window(window, width, height):
@@ -41,6 +51,57 @@ def center_window(window, width, height):
     x = (screen_width - width) // 2
     y = (screen_height - height) // 2
     window.geometry(f"{width}x{height}+{x}+{y}")
+
+# Hàm giải mã dữ liệu
+def decrypt_data(encrypted_data, key):
+    # Tách IV và ciphertext từ dữ liệu mã hóa
+    iv = encrypted_data[:16]  # Lấy 16 byte đầu tiên làm IV
+    ciphertext = encrypted_data[16:]
+    # Khởi tạo đối tượng cipher AES với khóa và IV
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    # Giải mã dữ liệu
+    plaintext = cipher.decrypt(ciphertext)
+    # Loại bỏ padding
+    padding_length = plaintext[-1]  # Byte cuối cùng cho biết độ dài padding
+    plaintext = plaintext[:-padding_length]  # Loại bỏ padding
+    return plaintext
+    
+# Hàm tải file về máy
+def download_file(datas):
+    # Tạo thư mục "note_list" nếu chưa tồn tại
+    directory = os.path.join(os.getcwd(), "note_list")
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    for data in datas:
+        username = data['username']
+        name = data['name']
+        file_extension = data['file_extension']
+        key = base64.b64decode(data['key'])
+        encrypted_data = base64.b64decode(data['encrypted_data'])
+        # Giải mã dữ liệu
+        decrypted_data = decrypt_data(encrypted_data, key)
+        # Lưu dữ liệu vào file
+        file_name = f"{username}_{name}.{file_extension}"
+        file_path = os.path.join(directory, file_name)
+        with open(file_path, "wb") as f:
+            f.write(decrypted_data)
+        # Thêm dữ liệu vào mảng notes
+        notes.append({"name": name, "file": file_path})
+    messagebox.showinfo("Thành công", "File đã được tải xuống thành công!")
+
+# Hàm lấy file từ server
+def get_notes():
+    username = global_username
+    try:
+        response = requests.get('http://127.0.0.1:5000/notes', params={"username": username})
+        if response.status_code == 200:
+            datas = response.json()["notes"]
+            messagebox.showinfo("Thành công", "Dữ liệu đã được tải về!")
+        else:
+            messagebox.showerror("Lỗi", f"Không thể tải dữ liệu: {response.text}")
+        download_file(datas)
+    except Exception as e:
+        messagebox.showerror("Lỗi", f"Không tải được dữ liệu: {str(e)}")
 
 # Hàm hiển thị cửa sổ tạo URL
 def show_create_url_window(parent_window, note_name):
@@ -148,7 +209,7 @@ def show_create_url_window(parent_window, note_name):
     update_timer()
 
 
-# Hàm hiển thị danh sách ghi chú
+# Hàm hiển thị danh sách ghi chú - Liệt kê ghi chú 
 def show_notes_list_window(parent_window):
     parent_window.withdraw()
     list_window = tk.Toplevel(parent_window)
@@ -164,8 +225,32 @@ def show_notes_list_window(parent_window):
         show_create_url_window(list_window, note_name)
 
     def delete_note(note_index):
+        # Khai báo thư mục lưu file và tạo nếu không tồn tại
+        directory = os.path.join(os.getcwd(), "note_list")  
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        # Xóa file theo đường dẫn được lưu trong danh sách notes
+        file_path = notes[note_index]['file']
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        # Xóa ghi chú trên server
+        try:
+            response = requests.delete(
+                'http://127.0.0.1:5000/notes',
+                json={
+                    "username": global_username,
+                    "name": notes[note_index]['name']
+                }
+            )
+            if response.status_code == 200:
+                messagebox.showinfo("Thành công", "Xóa ghi chú trên server thành công")
+            else:
+                messagebox.showerror("Lỗi", f"Không thể xóa ghi chú: {response.text}")
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Đã xảy ra lỗi: {str(e)}")
+        # Xóa ghi chú khỏi danh sách notes 
         notes.pop(note_index)
-        messagebox.showinfo("Xóa ghi chú", "Ghi chú đã được xóa!")
+        messagebox.showinfo("Thành công", "Ghi chú đã được xóa!")
         list_window.destroy()
         show_notes_list_window(parent_window)
 
@@ -174,6 +259,26 @@ def show_notes_list_window(parent_window):
             os.startfile(file_path)  # Mở file bằng ứng dụng mặc định
         else:
             messagebox.showerror("Lỗi", "File không tồn tại!")
+
+    def load_notes():
+        # Khai báo thư mục lưu file và tạo nếu không tồn tại
+        directory = os.path.join(os.getcwd(), "note_list")
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        # Kiểm tra nếu thư mục không rỗng
+        if os.listdir(directory):
+            # Xóa tất cả file trong thư mục
+            for filename in os.listdir(directory):
+                file_path = os.path.join(directory, filename)
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+            # Xóa toàn bộ note trong mảng notes
+            notes.clear()
+            messagebox.showinfo("Thành công", "Đã xóa tất cả các file trong thư mục và ghi chú trong mảng!")
+        # Lấy lại danh sách ghi chú từ server
+        get_notes()
+        list_window.destroy()
+        show_notes_list_window(parent_window)
 
     # Tiêu đề
     title_label = tk.Label(
@@ -247,7 +352,21 @@ def show_notes_list_window(parent_window):
         relief="flat",
         command=go_back
     )
-    back_button.pack(pady=20)
+    back_button.place(x=10, y=10)
+
+    # Nút load lại danh sách ghi chú
+    refresh_button = tk.Button(
+        list_window,
+        text="Load",
+        font=("Helvetica", 12),
+        bg="#28a745",
+        fg="white",
+        activebackground="#218838",
+        activeforeground="white",
+        relief="flat",
+        command=load_notes
+    )
+    refresh_button.place(x=540, y=10)
 
 # Hàm hiển thị cửa sổ quản lý ghi chú
 def show_notes_window():
@@ -268,8 +387,10 @@ def show_notes_window():
 
     # Hàm mã hóa dữ liệu file
     def encrypt_file_to_variable(input_file, key):
-        iv = get_random_bytes(16)  # Tạo IV ngẫu nhiên
-        cipher = AES.new(key, AES.MODE_CBC, iv)  # Tạo cipher AES
+        # Tạo IV ngẫu nhiên
+        iv = get_random_bytes(16)
+        # Tạo cipher AES  
+        cipher = AES.new(key, AES.MODE_CBC, iv)  
         # Đọc nội dung file
         with open(input_file, "rb") as f:
             plaintext = f.read()
@@ -279,7 +400,7 @@ def show_notes_window():
         # Mã hóa
         ciphertext = cipher.encrypt(plaintext)
         # Lưu nội dung mã hóa vào biến (bao gồm cả IV)
-        encrypted_data = iv + ciphertext  # Kết hợp IV và ciphertext
+        encrypted_data = iv + ciphertext
         return encrypted_data
 
     def choose_file():
@@ -312,14 +433,14 @@ def show_notes_window():
                         "username": global_username, 
                         "name": name,
                         "file_extension": file_extension,             
-                        "key": base64.b64encode(key).decode('utf-8'),  # Chuyển key từ bytes thành base64 để gửi qua JSON
+                        "key": base64.b64encode(key).decode('utf-8'),  # Chuyển key từ bytes thành base64
                         "encrypted_data": base64.b64encode(encrypted_data).decode('utf-8')  # Chuyển dữ liệu mã hóa thành base64
                     }
                 )
                 if response.status_code == 200:
-                    messagebox.showinfo("Thành công", "Dữ liệu đã được gửi đến server!")
+                    messagebox.showinfo("Thành công", "Ghi chú đã được gửi đến server!")
                 else:
-                    messagebox.showerror("Lỗi", f"Không thể gửi dữ liệu: {response.text}")
+                    messagebox.showerror("Lỗi", f"Không thể gửi ghi chú: {response.text}")
             except Exception as e:
                 messagebox.showerror("Lỗi", f"Đã xảy ra lỗi: {str(e)}")
             # notes.append({"name": name, "file": selected_file[0]})
@@ -484,57 +605,6 @@ def show_url_input_window(parent_window):
     )
     submit_button.pack(pady=20)
 
-# Hàm giải mã dữ liệu
-def decrypt_data(encrypted_data, key):
-    # Tách IV và ciphertext từ dữ liệu mã hóa
-    iv = encrypted_data[:16]  # Lấy 16 byte đầu tiên làm IV
-    ciphertext = encrypted_data[16:]
-    # Khởi tạo đối tượng cipher AES với khóa và IV
-    cipher = AES.new(key, AES.MODE_CBC, iv)
-    # Giải mã dữ liệu
-    plaintext = cipher.decrypt(ciphertext)
-    # Loại bỏ padding
-    padding_length = plaintext[-1]  # Byte cuối cùng cho biết độ dài padding
-    plaintext = plaintext[:-padding_length]  # Loại bỏ padding
-    return plaintext
-    
-# Hàm tải file về máy
-def download_file(datas):
-    # Tạo thư mục "note_list" nếu chưa tồn tại
-    directory = os.path.join(os.getcwd(), "note_list")  # Thư mục lưu file
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-    for data in datas:
-        username = data['username']
-        name = data['name']
-        file_extension = data['file_extension']
-        key = base64.b64decode(data['key'])
-        encrypted_data = base64.b64decode(data['encrypted_data'])
-        # Giải mã dữ liệu
-        decrypted_data = decrypt_data(encrypted_data, key)
-        # Lưu dữ liệu vào file
-        file_name = f"{username}_{name}.{file_extension}"
-        file_path = os.path.join(directory, file_name)
-        with open(file_path, "wb") as f:
-            f.write(decrypted_data)
-        # Thêm dữ liệu vào mảng notes
-        notes.append({"name": name, "file": file_path})
-    messagebox.showinfo("Tải xuống", "File đã được tải xuống thành công!")
-
-# Hàm lấy file từ server
-def get_notes():
-    username = global_username
-    try:
-        response = requests.get('http://127.0.0.1:5000/notes', params={"username": username})
-        if response.status_code == 200:
-            datas = response.json()["notes"]
-            messagebox.showinfo("Thành công", "Dữ liệu đã được tải về!")
-        else:
-            messagebox.showerror("Lỗi", f"Không thể tải dữ liệu: {response.text}")
-        download_file(datas)
-    except Exception as e:
-        messagebox.showerror("Lỗi", f"Không tải được dữ liệu: {str(e)}")
-
 # Hàm hiển thị cửa sổ Đăng nhập
 def show_login_window():
     root.withdraw()
@@ -690,6 +760,9 @@ root = tk.Tk()
 root.title("Quản lý ghi chú")
 center_window(root, 600, 400)
 root.configure(bg="#f8f9fa")
+
+# Gắn sự kiện on_closing vào nút X (close)
+root.protocol("WM_DELETE_WINDOW", on_closing)
 
 title_label = tk.Label(
     root,
