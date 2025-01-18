@@ -9,16 +9,6 @@ from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes 
 from pymongo import MongoClient
 
-# Hàm xử lý sự kiện đóng cửa sổ
-def on_closing():
-    directory = os.path.join(os.getcwd(), "note_list")
-    if os.path.exists(directory):
-        for filename in os.listdir(directory):
-            file_path = os.path.join(directory, filename)
-            if os.path.isfile(file_path):
-                os.remove(file_path)
-    root.destroy()
-
 # Hàm căn giữa cửa sổ
 def center_window(window, width, height):
     screen_width = window.winfo_screenwidth()
@@ -754,6 +744,16 @@ def show_register_window():
         command=handle_register
     )
     submit_button.pack(pady=20)
+
+# Hàm xử lý sự kiện đóng cửa sổ ở của số root 
+def on_closing():
+    directory = os.path.join(os.getcwd(), "note_list")
+    if os.path.exists(directory):
+        for filename in os.listdir(directory):
+            file_path = os.path.join(directory, filename)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+    root.destroy()
 
 # Tạo cửa sổ chính
 root = tk.Tk()
