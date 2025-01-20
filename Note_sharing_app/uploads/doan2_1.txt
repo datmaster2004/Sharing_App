@@ -1,0 +1,20 @@
+Client:
+Cửa sổ 1
+-Đăng kí/Đăng nhập:
+Cửa sổ 2
+-Tạo ghi chú:(
++ Chọn file 
++ Đặt tên
+)
+-Liệt kê các ghi chú (
+
++Chia sẻ ghi chú: Tạo URL
++Xóa ghi chú:
+)
+
+Server:
+Người dùng: thông tin, ghi chú được mã hóa.
+URL: ID ghi chú, khóa mã hóa, thời gian hết hạn
+
+Chức năng của server:
+Xác thực người dùng, Xác thực URL.

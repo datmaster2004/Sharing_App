@@ -8,6 +8,11 @@ import requests
 from Crypto.Cipher import AES 
 from Crypto.Random import get_random_bytes 
 from pymongo import MongoClient
+import tkinter as tk
+from tkinter import messagebox
+import pyperclip  # Dùng để copy vào clipboard
+import requests
+from datetime import datetime, timedelta
 
 # Hàm căn giữa cửa sổ
 def center_window(window, width, height):
@@ -31,9 +36,9 @@ def is_valid_password(password):
 
 # Danh sách ghi chú
 notes = []
+
 # Biến toàn cục lưu tên đăng nhập
 global_username = ""
-
 # Hàm căn giữa cửa sổ
 def center_window(window, width, height):
     screen_width = window.winfo_screenwidth()
@@ -95,19 +100,40 @@ def get_notes():
 
 # Hàm hiển thị cửa sổ tạo URL
 def show_create_url_window(parent_window, note_name):
+    """
+    Hiển thị cửa sổ tạo URL, gửi yêu cầu tạo URL đến server và quản lý giao diện.
+    """
     parent_window.withdraw()
     create_url_window = tk.Toplevel(parent_window)
     create_url_window.title("Tạo URL")
-    center_window(create_url_window, 400, 300)
+    center_window(create_url_window, 500, 400)
     create_url_window.configure(bg="#f8f9fa")
+    
+    # Lấy file path từ danh sách ghi chú
+    file_path = next((note["file"] for note in notes if note["name"] == note_name), None)
 
-    # Tạo URL
-    url = f"https://example.com/notes/{note_name.replace(' ', '_')}"
+    if not file_path:
+        messagebox.showerror("Lỗi", "Không tìm thấy file liên quan đến ghi chú!")
+        parent_window.deiconify()
+        return
 
-    # Đồng hồ đếm ngược
-    countdown_time = [600]  # 10 phút
+    url_label = tk.Label(
+        create_url_window,
+        text="URL sẽ hiển thị ở đây sau khi tạo.",
+        font=("Helvetica", 12),
+        bg="#f8f9fa",
+        fg="#343a40",
+        wraplength=450,
+        justify="center"
+    )
+    url_label.pack(pady=10)
 
+    countdown_time = [600]  # Thời gian đếm ngược 10 phút
+    def go_back():
+        create_url_window.destroy()
+        parent_window.deiconify()
     def update_timer():
+        """Cập nhật đồng hồ đếm ngược."""
         if countdown_time[0] > 0:
             minutes, seconds = divmod(countdown_time[0], 60)
             timer_label.config(text=f"Thời gian còn lại: {minutes:02}:{seconds:02}")
@@ -117,22 +143,65 @@ def show_create_url_window(parent_window, note_name):
             messagebox.showinfo("Hết giờ", "Thời gian chia sẻ URL đã hết!")
             cancel_share()
 
-    # Quay lại
-    def go_back():
-        create_url_window.destroy()
-        parent_window.deiconify()
+    def generate_url():
+        """Gọi API để tạo URL và cập nhật giao diện."""
+        try:
+            response = requests.post(
+                'http://localhost:5000/share',
+                json={"note_id": note_name}  # Gửi note_id để kiểm tra hoặc tạo URL
+            )
 
-    # Copy URL
+            # Kiểm tra phản hồi từ server
+            if response.status_code == 200:
+                data = response.json()
+                download_url = data["url"]
+                remaining_time = data["remaining_time"]
+
+                # Cập nhật giao diện
+                url_label.config(text=f"URL tải xuống: {download_url}")
+                pyperclip.copy(download_url)  # Copy URL vào clipboard
+                messagebox.showinfo("Thành công", "URL đã được tạo và sao chép vào clipboard!")
+
+                # Cập nhật bộ đếm
+                countdown_time[0] = int(remaining_time)
+                update_timer()  # Bắt đầu hoặc cập nhật đếm giờ
+            else:
+                messagebox.showerror("Lỗi", response.json().get("message", "Không thể tạo URL!"))
+        except requests.exceptions.RequestException as e:
+            messagebox.showerror("Lỗi", f"Không thể kết nối với server: {str(e)}")
+
     def copy_to_clipboard():
-        pyperclip.copy(url)
+        """Sao chép URL vào clipboard."""
+        pyperclip.copy(url_label.cget("text").replace("URL tải xuống: ", ""))
         messagebox.showinfo("Copy", "URL đã được sao chép vào clipboard!")
 
-    # Hủy chia sẻ
     def cancel_share():
-        create_url_window.destroy()
-        parent_window.deiconify()
+        """Hủy chia sẻ URL."""
+        try:
+            # Lấy URL từ giao diện (ví dụ: từ nhãn URL đã tạo)
+            shared_url = url_label.cget("text").replace("URL tải xuống: ", "").strip()
 
-    # Giao diện tạo URL
+            if not shared_url:
+                messagebox.showerror("Lỗi", "Không tìm thấy URL để hủy chia sẻ!")
+                return
+
+            # Gửi yêu cầu đến server để hủy chia sẻ
+            response = requests.post("http://localhost:5000/revoke", json={"url": shared_url})
+            if response.status_code == 200:
+                messagebox.showinfo("Hủy chia sẻ", "URL đã bị hủy thành công!")
+            else:
+                error_message = response.json().get("message", "Không thể hủy URL")
+                messagebox.showerror("Lỗi", f"Hủy chia sẻ thất bại: {error_message}")
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Hủy chia sẻ thất bại: {str(e)}")
+        finally:
+            # Đóng cửa sổ tạo URL và quay lại cửa sổ cha
+            create_url_window.destroy()
+            parent_window.deiconify()
+
+
+
+    # Nút quay lại
     back_button = tk.Button(
         create_url_window,
         text="← Quay lại",
@@ -144,37 +213,26 @@ def show_create_url_window(parent_window, note_name):
         relief="flat",
         command=go_back
     )
-    back_button.pack(pady=10, anchor="w", padx=10)
+    back_button.place(x=10, y=10)
+    
 
-    url_label = tk.Label(
-        create_url_window,
-        text=f"URL: {url}",
-        font=("Helvetica", 12),
-        bg="#f8f9fa",
-        fg="#343a40",
-        wraplength=350,
-        justify="center"
-    )
-    url_label.pack(pady=10)
-
-    button_frame = tk.Frame(create_url_window, bg="#f8f9fa")
-    button_frame.pack(pady=10)
-
+    # Nút sao chép URL
     copy_button = tk.Button(
-        button_frame,
-        text="Copy",
+        create_url_window,
+        text="Copy URL",
         font=("Helvetica", 12),
-        bg="#28a745",
+        bg="#007bff",
         fg="white",
-        activebackground="#218838",
+        activebackground="#0056b3",
         activeforeground="white",
         relief="flat",
         command=copy_to_clipboard
     )
-    copy_button.pack(side="left", padx=10)
+    copy_button.pack(pady=10)
 
+    # Nút hủy chia sẻ
     cancel_button = tk.Button(
-        button_frame,
+        create_url_window,
         text="Hủy chia sẻ",
         font=("Helvetica", 12),
         bg="#dc3545",
@@ -184,8 +242,9 @@ def show_create_url_window(parent_window, note_name):
         relief="flat",
         command=cancel_share
     )
-    cancel_button.pack(side="left", padx=10)
+    cancel_button.pack(pady=10)
 
+    # Đồng hồ đếm ngược
     timer_label = tk.Label(
         create_url_window,
         text="Thời gian còn lại: 10:00",
@@ -194,9 +253,8 @@ def show_create_url_window(parent_window, note_name):
         fg="#343a40"
     )
     timer_label.pack(pady=10)
+    generate_url()
 
-    # Bắt đầu đếm giờ
-    update_timer()
 
 
 # Hàm hiển thị danh sách ghi chú - Liệt kê ghi chú 
@@ -211,8 +269,6 @@ def show_notes_list_window(parent_window):
         list_window.destroy()
         parent_window.deiconify()
 
-    def create_url(note_name):
-        show_create_url_window(list_window, note_name)
 
     def delete_note(note_index):
         # Khai báo thư mục lưu file và tạo nếu không tồn tại
@@ -293,14 +349,14 @@ def show_notes_list_window(parent_window):
 
             url_button = tk.Button(
                 note_frame,
-                text="Tạo URL",
+                text="Chia sẻ",
                 font=("Helvetica", 10),
                 bg="#007bff",
                 fg="white",
                 activebackground="#0056b3",
                 activeforeground="white",
                 relief="flat",
-                command=lambda name=note["name"]: create_url(name)
+                command=lambda name=note["name"]: show_create_url_window(list_window, name)
             )
             url_button.pack(side="left", padx=5)
 
@@ -383,7 +439,7 @@ def show_notes_window():
         root.deiconify()
 
     def show_url_input():
-          show_url_input_window(notes_window)
+        show_url_input_window(notes_window)
 
     # Hàm mã hóa dữ liệu file
     def encrypt_file_to_variable(input_file, key):
@@ -412,13 +468,17 @@ def show_notes_window():
             selected_file[0] = file_path
             file_label.config(text=f"Đã chọn: {file_path.split('/')[-1]}")
 
-    def add_note(): # Phần này là phần gửi data cho server 
+    def add_note():
+        """
+        Gửi dữ liệu ghi chú và file lên server thông qua API /upload.
+        """
         name = name_entry.get()
         if not (2 <= len(name) <= 20):
             messagebox.showerror("Lỗi", "Tên phải từ 2 đến 20 ký tự!")
         elif not selected_file[0]:
             messagebox.showerror("Lỗi", "Vui lòng chọn file!")
         else:
+
             # Tạo khóa AES ngẫu nhiên (256-bit)
             key = get_random_bytes(32)
             # Mã hóa file và lưu nội dung mã hóa vào biến
@@ -450,6 +510,7 @@ def show_notes_window():
             selected_file[0] = None
             file_label.config(text="Chưa chọn file")
 
+            
     # Nút quay lại
     back_button = tk.Button(
         notes_window,
@@ -539,7 +600,6 @@ def show_notes_window():
     
 # Hàm hiển thị cửa sổ nhập URL
 def show_url_input_window(parent_window):
-    
     url_input_window = tk.Toplevel(parent_window)
     url_input_window.title("Nhập URL")
     center_window(url_input_window, 400, 250)
@@ -551,20 +611,43 @@ def show_url_input_window(parent_window):
 
     def handle_url_input():
         input_url = url_entry.get()
-        
-        # Duyệt qua từng ghi chú để kiểm tra URL
-        for note in notes:
-          generated_url = f"https://example.com/notes/{note['name'].replace(' ', '_')}"
-          if input_url == generated_url:
-            if os.path.exists(note['file']):
-                os.startfile(note['file'])  # Mở file bằng ứng dụng mặc định
+
+        try:
+            # Gửi URL đến server để kiểm tra tính hợp lệ
+            response = requests.post("http://127.0.0.1:5000/validate_url", json={"url": input_url})
+            if response.status_code == 200:
+                # Nếu URL hợp lệ, tải file từ server
+                file_info = response.json()
+                download_url = file_info.get("download_url")
+                aes_key = base64.b64decode(file_info.get("key"))  # Lấy khóa giải mã từ server
+                file_extension = file_info.get("file_extension", "txt")  # Lấy phần mở rộng file từ server
+
+                # Tải dữ liệu mã hóa từ URL
+                encrypted_data = requests.get(download_url).content
+
+                # Giải mã dữ liệu
+                decrypted_data = decrypt_data(encrypted_data, aes_key)
+
+                # Lưu dữ liệu đã giải mã vào file
+                file_name = file_info.get("file_name", f"decrypted_file.{file_extension}")  # Đặt tên file với đúng phần mở rộng
+                decrypted_file_path = os.path.join(os.getcwd(), "downloads", file_name)
+                os.makedirs(os.path.dirname(decrypted_file_path), exist_ok=True)
+                with open(decrypted_file_path, "wb") as file:
+                    file.write(decrypted_data)
+
+                # Mở file đã giải mã bằng ứng dụng mặc định
+                if os.path.exists(decrypted_file_path):
+                    os.startfile(decrypted_file_path)
+                else:
+                    messagebox.showerror("Lỗi", "File đã giải mã không tồn tại!")
             else:
-                messagebox.showerror("Lỗi", "File không tồn tại!")
-            url_input_window.destroy()
-            parent_window.deiconify()
-            return
-        messagebox.showerror("Lỗi", "URL không hợp lệ!")
-    
+                messagebox.showerror("Lỗi", response.json().get("message", "URL không hợp lệ!"))
+
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"URL đã hết quyền truy cập")
+
+        url_input_window.destroy()
+        parent_window.deiconify()
     # Nút quay lại
     back_button = tk.Button(
         url_input_window,
@@ -604,7 +687,6 @@ def show_url_input_window(parent_window):
         command=handle_url_input
     )
     submit_button.pack(pady=20)
-
 # Hàm hiển thị cửa sổ Đăng nhập
 def show_login_window():
     root.withdraw()
@@ -627,10 +709,30 @@ def show_login_window():
         elif len(password) < 8:
             messagebox.showerror("Lỗi", "Mật khẩu phải có ít nhất 8 ký tự!")
         else:
+
+            
+
+            data = {'username': username, 'password': password}
             global_username = username
-            get_notes()
-            login_window.destroy()
-            show_notes_window()
+            try:
+                # Gửi yêu cầu đăng nhập đến server
+                response = requests.post('http://localhost:5000/login', json=data)
+                
+                if response.status_code == 200:
+                    # Nếu đăng nhập thành công
+                    messagebox.showinfo("Đăng nhập thành công", "Bạn đã đăng nhập thành công!")
+                    get_notes()
+                    login_window.destroy()
+                    show_notes_window()  # Chuyển tới cửa sổ quản lý ghi chú
+                elif response.status_code == 400 or response.status_code == 404:
+                    # Nếu đăng nhập thất bại (sai username hoặc password)
+                    messagebox.showerror("Lỗi", "Tên đăng nhập hoặc mật khẩu không đúng!")
+                else:
+                    # Nếu có lỗi kết nối hoặc mã lỗi khác
+                    messagebox.showerror("Lỗi", "Lỗi kết nối với server.")
+            except requests.exceptions.RequestException as e:
+                messagebox.showerror("Lỗi", f"Không thể kết nối với server: {e}")
+
 
     # Nút quay lại
     back_button = tk.Button(
@@ -701,11 +803,27 @@ def show_register_window():
         elif password != confirm_password:
             messagebox.showerror("Lỗi", "Mật khẩu không khớp!")
         else:
-            messagebox.showinfo("Thành công", "Đăng ký thành công!")
-            global_username = username
-            get_notes()
-            register_window.destroy()
-            root.deiconify()
+
+            # Gửi yêu cầu lên server để kiểm tra tên đăng nhập
+            data = {'username': username, 'password': password}
+            try:
+                # Giả sử URL của server là 'http://localhost:5000/check_username'
+                response = requests.post('http://localhost:5000/register', json=data)
+                
+                # Kiểm tra kết quả từ server
+                if response.status_code == 201:
+                    messagebox.showinfo("Thành công", "Đăng ký thành công!")
+                    register_window.destroy()
+                    root.deiconify()
+                elif response.status_code == 400:
+                    # Nếu tên đăng nhập đã tồn tại
+                    result = response.json()
+                    messagebox.showerror("Lỗi", result['message'])
+                else:
+                    messagebox.showerror("Lỗi", "Lỗi kết nối với server.")
+            except requests.exceptions.RequestException as e:
+                messagebox.showerror("Lỗi", f"Không thể kết nối với server: {e}")
+
 
     # Nút quay lại
     back_button = tk.Button(
