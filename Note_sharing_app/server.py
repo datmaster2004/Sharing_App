@@ -66,6 +66,9 @@ def login():
 @app.route('/notes', methods=['POST'])
 def add_notes():
     data = request.get_json()
+    existing_note = notes_collection.find_one({"name": data['name']})
+    if existing_note:
+        return jsonify({"error": "Name already exists in the database!"}), 400
     # Thêm ghi chú vào database
     notes_collection.insert_one({
         "username": data['username'],

@@ -82,7 +82,6 @@ def download_file(datas):
             f.write(decrypted_data)
         # Thêm dữ liệu vào mảng notes
         notes.append({"name": name, "file": file_path})
-    messagebox.showinfo("Thành công", "File đã được tải xuống thành công!")
 
 # Hàm lấy file từ server
 def get_notes():
@@ -91,7 +90,9 @@ def get_notes():
         response = requests.get('http://127.0.0.1:5000/notes', params={"username": username})
         if response.status_code == 200:
             datas = response.json()["notes"]
-            messagebox.showinfo("Thành công", "Dữ liệu đã được tải về!")
+            #messagebox.showinfo("Thành công", "Dữ liệu đã được tải về!")
+        elif response.status_code == 400:
+            messagebox.showerror("Lỗi",f'Tên ghi chú đã tồn tại')
         else:
             messagebox.showerror("Lỗi", f"Không thể tải dữ liệu: {response.text}")
         download_file(datas)
@@ -320,9 +321,11 @@ def show_notes_list_window(parent_window):
                     os.remove(file_path)
             # Xóa toàn bộ note trong mảng notes
             notes.clear()
-            messagebox.showinfo("Thành công", "Đã xóa tất cả các file trong thư mục và ghi chú trong mảng!")
+            #messagebox.showinfo("Thành công", "Đã xóa tất cả các file trong thư mục và ghi chú trong mảng!")
         # Lấy lại danh sách ghi chú từ server
         get_notes()
+        messagebox.showinfo("Thành công", "Danh sách ghi chú đã được cập nhật.")
+
         list_window.destroy()
         show_notes_list_window(parent_window)
 
